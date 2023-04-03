@@ -219,7 +219,7 @@ if __name__ == '__main__':
                 if file.endswith('.jsonl'):
                     with open(root + '/' + file, 'r') as readfile:
                         outfile.write(readfile.read())
-    print("merge succssed!")
+    print("jsonl merge succssed!")
 
     # old_jsonl数据去重
     remove_duplicate_data(old_jsonl)
