@@ -3,6 +3,7 @@
 # https://github.com/LAION-AI/aesthetic-predictor
 # https://github.com/rom1504/clip-retrieval/blob/main/clip_retrieval/h14_nsfw_model.py
 # https://github.com/mlfoundations/open_clip
+# https://github.com/salesforce/LAVIS/tree/main/projects/blip2
 
 import os
 import shutil
