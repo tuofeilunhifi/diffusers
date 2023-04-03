@@ -223,6 +223,12 @@ def parse_args():
         help="Initial learning rate (after the potential warmup period) to use.",
     )
     parser.add_argument(
+        "--rank",
+        type=int,
+        default=4,
+        help="To increase the size, you can manually set the rank (dimension for low rank decomposition) for LoRA layers.",
+    )
+    parser.add_argument(
         "--scale_lr",
         action="store_true",
         default=False,
@@ -305,7 +311,7 @@ def parse_args():
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=500,
+        default=2000,
         help=(
             "Save a checkpoint of the training state every X updates. These checkpoints are only suitable for resuming"
             " training using `--resume_from_checkpoint`."
@@ -474,8 +480,9 @@ def main():
             block_id = int(name[len("down_blocks.")])
             hidden_size = unet.config.block_out_channels[block_id]
 
+        print("rank:{}".format(args.rank))
         lora_attn_procs[name] = LoRACrossAttnProcessor(
-            hidden_size=hidden_size, cross_attention_dim=cross_attention_dim
+            hidden_size=hidden_size, cross_attention_dim=cross_attention_dim, rank=args.rank
         )
 
     unet.set_attn_processor(lora_attn_procs)
@@ -518,6 +525,7 @@ def main():
     else:
         optimizer_cls = torch.optim.AdamW
 
+    print(lora_layers)
     optimizer = optimizer_cls(
         lora_layers.parameters(),
         lr=args.learning_rate,

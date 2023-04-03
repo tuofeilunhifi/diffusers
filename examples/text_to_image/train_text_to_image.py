@@ -269,7 +269,7 @@ def parse_args():
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=500,
+        default=2000,
         help=(
             "Save a checkpoint of the training state every X updates. These checkpoints are only suitable for resuming"
             " training using `--resume_from_checkpoint`."
@@ -488,6 +488,7 @@ def main():
     else:
         optimizer_cls = torch.optim.AdamW
 
+    print(unet)
     optimizer = optimizer_cls(
         unet.parameters(),
         lr=args.learning_rate,
