@@ -480,7 +480,6 @@ def main():
             block_id = int(name[len("down_blocks.")])
             hidden_size = unet.config.block_out_channels[block_id]
 
-        print("rank:{}".format(args.rank))
         lora_attn_procs[name] = LoRACrossAttnProcessor(
             hidden_size=hidden_size, cross_attention_dim=cross_attention_dim, rank=args.rank
         )
