@@ -39,11 +39,13 @@ from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
 import diffusers
-from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel
+from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel, DiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from diffusers.utils import check_min_version, deprecate
 from diffusers.utils.import_utils import is_xformers_available
+
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb=16'
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -296,6 +298,24 @@ def parse_args():
     )
     parser.add_argument(
         "--enable_xformers_memory_efficient_attention", action="store_true", help="Whether or not to use xformers."
+    )
+    parser.add_argument(
+        "--validation_prompt", type=str, default=None, help="A prompt that is sampled during training for inference."
+    )
+    parser.add_argument(
+        "--num_validation_images",
+        type=int,
+        default=4,
+        help="Number of images that should be generated during validation with `validation_prompt`.",
+    )
+    parser.add_argument(
+        "--validation_epochs",
+        type=int,
+        default=1,
+        help=(
+            "Run fine-tuning validation every X epochs. The validation process consists of running the prompt"
+            " `args.validation_prompt` multiple times: `args.num_validation_images`."
+        ),
     )
 
     args = parser.parse_args()
@@ -763,6 +783,47 @@ def main():
             if global_step >= args.max_train_steps:
                 break
 
+        if accelerator.is_main_process:
+            if args.validation_prompt is not None and epoch % args.validation_epochs == 0:
+                logger.info(
+                    f"Running validation... \n Generating {args.num_validation_images} images with prompt:"
+                    f" {args.validation_prompt}."
+                )
+                # create pipeline
+                pipeline = DiffusionPipeline.from_pretrained(
+                    args.pretrained_model_name_or_path,
+                    unet=accelerator.unwrap_model(unet),
+                    revision=args.revision,
+                    torch_dtype=weight_dtype,
+                )
+                pipeline = pipeline.to(accelerator.device)
+                pipeline.set_progress_bar_config(disable=True)
+
+                # run inference
+                generator = torch.Generator(device=accelerator.device).manual_seed(args.seed)
+                images = []
+                for _ in range(args.num_validation_images):
+                    images.append(
+                        pipeline(args.validation_prompt, generator=generator).images[0]
+                    )
+
+                for tracker in accelerator.trackers:
+                    if tracker.name == "tensorboard":
+                        np_images = np.stack([np.asarray(img) for img in images])
+                        tracker.writer.add_images("validation", np_images, epoch, dataformats="NHWC")
+                    if tracker.name == "wandb":
+                        tracker.log(
+                            {
+                                "validation": [
+                                    wandb.Image(image, caption=f"{i}: {args.validation_prompt}")
+                                    for i, image in enumerate(images)
+                                ]
+                            }
+                        )
+
+                del pipeline
+                torch.cuda.empty_cache()
+
     # Create the pipeline using the trained modules and save it.
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
@@ -781,6 +842,34 @@ def main():
 
         if args.push_to_hub:
             repo.push_to_hub(commit_message="End of training", blocking=False, auto_lfs_prune=True)
+
+    # Final inference
+    # Load previous pipeline
+    pipeline = StableDiffusionPipeline.from_pretrained(
+        args.output_dir, revision=args.revision, torch_dtype=weight_dtype
+    )
+    pipeline = pipeline.to(accelerator.device)
+
+    # run inference
+    generator = torch.Generator(device=accelerator.device).manual_seed(args.seed)
+    images = []
+    for _ in range(args.num_validation_images):
+        images.append(pipeline(args.validation_prompt, generator=generator).images[0])
+
+    if accelerator.is_main_process:
+        for tracker in accelerator.trackers:
+            if tracker.name == "tensorboard":
+                np_images = np.stack([np.asarray(img) for img in images])
+                tracker.writer.add_images("test", np_images, epoch, dataformats="NHWC")
+            if tracker.name == "wandb":
+                tracker.log(
+                    {
+                        "test": [
+                            wandb.Image(image, caption=f"{i}: {args.validation_prompt}")
+                            for i, image in enumerate(images)
+                        ]
+                    }
+                )
 
     accelerator.end_training()
 
