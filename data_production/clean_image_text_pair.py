@@ -105,7 +105,9 @@ def filter_images(old_jsonl, src_folder, dst_folder, preprocess, aesthetic_backb
             # 去掉换行符
             data = json.loads(line.strip())
             txt_dict['/'.join(data['file_name'].split('/')[-2:])] = data['text']
-    # print(txt_dict)
+    new_jsonl_list = []
+    for i in range(7):
+        new_jsonl_list.append(open(new_jsonl.format(i), 'w'))
     count = 0
     for root, dirs, files in os.walk(src_folder):
         for file in files:
@@ -178,26 +180,35 @@ def filter_images(old_jsonl, src_folder, dst_folder, preprocess, aesthetic_backb
                     text = tokenizer([img_text])
                     similarity = clip_similarity(clip_model, image, text)
 
-                    # 匹配度低的图文对用blip2生成text补救
-                    if similarity < 0.2:
-                        inputs = blip2_processor(images=img, return_tensors="pt").to(device, torch.float16)
-                        generated_ids = blip2_model.generate(**inputs)
-                        blip2_text = blip2_processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
-                        text = tokenizer([blip2_text])
-                        blip2_similarity = clip_similarity(clip_model, image, text)
-                        print("img_text:{}, generate_text:{}, similarity:{}, blip2_similarity:{}".format(img_text, blip2_text, similarity, blip2_similarity))
-                        if blip2_similarity > similarity:
-                            img_text = blip2_text
-                            similarity = blip2_similarity
-
-                    if similarity < 0.2:
-                        print("{}, text:{}, similarity:{}".format(file_name, img_text, similarity))
-                        filter_flag = True
-                    else:
-                        data = {"file_name": file_name, "text": img_text}
-                        # 将字典转换为json字符串，并添加换行符
+                    # # 匹配度低的图文对用blip2生成text补救
+                    inputs = blip2_processor(images=img, return_tensors="pt").to(device, torch.float16)
+                    generated_ids = blip2_model.generate(**inputs)
+                    blip2_text = blip2_processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+                    text = tokenizer([blip2_text])
+                    blip2_similarity = clip_similarity(clip_model, image, text)
+                    print("img_text:{}, generate_text:{}, similarity:{}, blip2_similarity:{}".format(img_text, blip2_text, similarity, blip2_similarity))
+                    for i, new_jsonl in enumerate(new_jsonl_list):
+                        if i == 0:
+                            data = {"file_name": file_name, "text": img_text}
+                        elif i == 1:
+                            data = {"file_name": file_name, "text": blip2_text}
+                        elif i == 2:
+                            data = {"file_name": file_name, "text": img_text + blip2_text}
+                        elif i == 3:
+                            data = {"file_name": file_name, "text": img_text if similarity > blip2_similarity else blip2_text}
+                        elif i == 4:
+                            data = {"file_name": file_name, "text": img_text if similarity > blip2_similarity else img_text + blip2_text}
+                        elif i == 5:
+                            if max([similarity, blip2_similarity]) > 0.2:
+                                data = {"file_name": file_name, "text": img_text if similarity > blip2_similarity else blip2_text}
+                            else:
+                                continue
+                        else:
+                            if max([similarity, blip2_similarity]) > 0.2:
+                                data = {"file_name": file_name, "text": img_text if similarity > blip2_similarity else img_text + blip2_text}
+                            else:
+                                continue
                         json_str = json.dumps(data) + "\n"
-                        # 写入文件
                         new_jsonl.write(json_str)
 
             count += 1
@@ -206,10 +217,10 @@ def filter_images(old_jsonl, src_folder, dst_folder, preprocess, aesthetic_backb
                 shutil.move(src_file, dst_file)
 
 if __name__ == '__main__':
-    src_folder = "/home/ecs-user/dataset/pinterest3.0/train"
-    dst_folder = "/home/ecs-user/dataset/pinterest3.0_remove"
+    src_folder = "/home/ecs-user/dataset/artstation2/train"
+    dst_folder = "/home/ecs-user/dataset/artstation2_remove"
     old_jsonl = "./old_metadata.jsonl"
-    new_jsonl = open('./metadata.jsonl', 'w')
+    new_jsonl = "./metadata_{}.jsonl"
 
     # 合并txt文件
     jsonl_all = []
@@ -273,6 +284,7 @@ if __name__ == '__main__':
 
     filter_images(old_jsonl, src_folder, dst_folder, preprocess=preprocess, aesthetic_backbone=aesthetic_backbone, aesthetic_mlp=aesthetic_mlp, pwatermark_model=pwatermark_model, safety_model=safety_model, openclip_preprocess=openclip_preprocess, tokenizer=tokenizer, clip_model=clip_model, blip2_processor=blip2_processor, blip2_model=blip2_model, new_jsonl=new_jsonl)
 
-    # old_jsonl数据去重
-    remove_duplicate_data(new_jsonl)
+    for i in range(7):
+        # old_jsonl数据去重
+        remove_duplicate_data(new_jsonl.format(i))
     print("new_jsonl remove succssed!")

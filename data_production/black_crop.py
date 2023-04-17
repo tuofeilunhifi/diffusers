@@ -9,18 +9,23 @@ import matplotlib.pyplot as plt
 src_folder = "/home/ecs-user/dataset/artstation/train"
 dst_folder = "/home/ecs-user/dataset/artstation2/train"
 
+count = 0
 for root, dirs, files in os.walk(src_folder):
     for file in files:
+        count += 1
         src_file = os.path.join(root, file)
         dst_file = os.path.join(dst_folder, os.path.relpath(src_file, src_folder))
+        if os.path.exists(dst_file):
+            continue
         if not os.path.exists(os.path.dirname(dst_file)):
             os.makedirs(os.path.dirname(dst_file))
 
         threshold = 14 # 阈值
+
         try:
             image = cv2.imread(src_file) # 导入图片
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) # 转换为灰度图像
-        except:
+        except Exception as e: 
             continue
 
         nrow = gray.shape[0] # 获取图片尺寸
@@ -34,7 +39,7 @@ for root, dirs, files in os.walk(src_folder):
         rowflag = np.argwhere(rowc != threshold)
         colflag = np.argwhere(colc != threshold)
         if len(rowflag) == 0 or len(colflag) == 0:
-            print(src_file, dst_file)
+            print(count, src_file, dst_file)
             continue
 
         left,bottom,right,top = rowflag[0,0],colflag[-1,0],rowflag[-1,0],colflag[0,0]
